@@ -462,6 +462,10 @@ cannot spoil the shot. `man omaroll` lists every option with examples.
   [docs/performance](docs/performance/README.md).
 - **Cache and state.** Thumbnails in `~/.cache/omaroll/thumbs`, bounded at 256MB
   by default, configurable from 64MB to 1GB, and pruned least-recently-used.
+  A larger library, such as one on a network share, can raise the limits in
+  `~/.config/omaroll/omaroll.ini` under `[cache]`: `maximumMb` for thumbnails,
+  `metadataMaximumMb` for the date index (16) and `embeddedMaximumMb` for the
+  keyword index (64). A megabyte of either holds roughly 2,000 to 4,000 files.
   Embedded media dates use a small identity-checked index in the same cache
   root, so unchanged files are not inspected again on every launch. Seek-bar
   previews are in `~/.cache/omaroll/storyboards`, readable only by you, keyed

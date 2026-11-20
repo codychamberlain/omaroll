@@ -3831,6 +3831,41 @@ private slots:
     restored.setPreviewHeight(700);
   }
 
+  void cacheLimitsComeFromTheSettingsFile() {
+    QCOMPARE(AppSettings().metadataCacheMb(), 16);
+    QCOMPARE(AppSettings().embeddedCacheMb(), 64);
+    QSettings stored(QSettings::IniFormat, QSettings::UserScope, "omaroll", "omaroll");
+    const QVariant thumbnails = stored.value("cache/maximumMb");
+    const auto restore = qScopeGuard([&stored, thumbnails] {
+      stored.setValue("cache/maximumMb", thumbnails);
+      stored.remove("cache/metadataMaximumMb");
+      stored.remove("cache/embeddedMaximumMb");
+      stored.sync();
+    });
+    // Larger than Settings offers: the file's value is kept, not cut to 1 GB.
+    stored.setValue("cache/maximumMb", 8192);
+    stored.setValue("cache/metadataMaximumMb", 128);
+    stored.setValue("cache/embeddedMaximumMb", 256);
+    stored.sync();
+    {
+      AppSettings settings;
+      QCOMPARE(settings.thumbnailCacheMb(), 8192);
+      QCOMPARE(settings.metadataCacheMb(), 128);
+      QCOMPARE(settings.embeddedCacheMb(), 256);
+      CaptureModel model(&settings);
+      MediaMetadataIndex index(&model);
+      QCOMPARE(index.maximumCacheBytes(), 128LL * 1024 * 1024);
+      QCOMPARE(index.maximumEmbeddedCacheBytes(), 256LL * 1024 * 1024);
+    }
+    stored.setValue("cache/maximumMb", 1);
+    stored.setValue("cache/metadataMaximumMb", 0);
+    stored.setValue("cache/embeddedMaximumMb", 999999);
+    stored.sync();
+    QCOMPARE(AppSettings().thumbnailCacheMb(), 64);
+    QCOMPARE(AppSettings().metadataCacheMb(), 1);
+    QCOMPARE(AppSettings().embeddedCacheMb(), 1024);
+  }
+
   void additionalLibraryFoldersPersistAndRejectHome() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());

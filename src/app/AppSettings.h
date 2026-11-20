@@ -233,6 +233,12 @@ public:
   void setVideoPrimaryAction(const QString& action);
   [[nodiscard]] int thumbnailCacheMb() const { return m_thumbnailCacheMb; }
   void setThumbnailCacheMb(int megabytes);
+  // Set only in the settings file: how large the media date index and the
+  // keyword index may grow before the files seen longest ago are left out.
+  [[nodiscard]] int metadataCacheMb() const { return m_metadataCacheMb; }
+  [[nodiscard]] int embeddedCacheMb() const { return m_embeddedCacheMb; }
+  static constexpr int kDefaultMetadataCacheMb = 16;
+  static constexpr int kDefaultEmbeddedCacheMb = 64;
 
   [[nodiscard]] int tileWidth() const { return m_tileWidth; }
   void setTileWidth(int width);
@@ -788,6 +794,8 @@ private:
   QString m_imagePrimaryAction = QStringLiteral("preview");
   QString m_videoPrimaryAction = QStringLiteral("preview");
   int m_thumbnailCacheMb = 256;
+  int m_metadataCacheMb = kDefaultMetadataCacheMb;
+  int m_embeddedCacheMb = kDefaultEmbeddedCacheMb;
   int m_tileWidth = 240;
   bool m_showGridFilenames = false;
   bool m_showFolderSidebar = false;

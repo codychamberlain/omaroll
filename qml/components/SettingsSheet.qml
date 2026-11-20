@@ -105,7 +105,7 @@ Item {
     }
 
     function cacheLabel(megabytes) {
-        return megabytes === 1024 ? "1 GB" : megabytes + " MB"
+        return megabytes >= 1024 && megabytes % 1024 === 0 ? (megabytes / 1024) + " GB" : megabytes + " MB"
     }
 
     function open() {

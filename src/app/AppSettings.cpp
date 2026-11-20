@@ -75,6 +75,12 @@ constexpr auto kTextIndexScreenshotsOnly = "search/textIndexScreenshotsOnly";
 constexpr auto kImagePrimaryAction = "actions/imagePrimary";
 constexpr auto kVideoPrimaryAction = "actions/videoPrimary";
 constexpr auto kThumbnailCacheMb = "cache/maximumMb";
+// Settings offers up to 1 GB. A larger value written to the settings file is
+// kept, for a library too large for that, such as one on a network share.
+constexpr int kMaximumThumbnailCacheMb = 256 * 1024;
+constexpr auto kMetadataCacheMb = "cache/metadataMaximumMb";
+constexpr auto kEmbeddedCacheMb = "cache/embeddedMaximumMb";
+constexpr int kMaximumIndexCacheMb = 1024;
 constexpr auto kTileWidth = "view/tileWidth";
 constexpr auto kShowGridFilenames = "view/showGridFilenames";
 constexpr auto kShowFolderSidebar = "view/showFolderSidebar";
@@ -358,7 +364,12 @@ AppSettings::AppSettings(QObject* parent)
   // Persist resolved defaults so a fresh profile stays on native viewing after restart.
   if (!m_settings.contains(kImagePrimaryAction)) setValue(kImagePrimaryAction, m_imagePrimaryAction);
   if (!m_settings.contains(kVideoPrimaryAction)) setValue(kVideoPrimaryAction, m_videoPrimaryAction);
-  m_thumbnailCacheMb = qBound(64, m_settings.value(kThumbnailCacheMb, 256).toInt(), 1024);
+  m_thumbnailCacheMb =
+      qBound(64, m_settings.value(kThumbnailCacheMb, 256).toInt(), kMaximumThumbnailCacheMb);
+  m_metadataCacheMb = qBound(1, m_settings.value(kMetadataCacheMb, kDefaultMetadataCacheMb).toInt(),
+                             kMaximumIndexCacheMb);
+  m_embeddedCacheMb = qBound(1, m_settings.value(kEmbeddedCacheMb, kDefaultEmbeddedCacheMb).toInt(),
+                             kMaximumIndexCacheMb);
   m_tileWidth =
       qBound(kMinimumTileWidth, m_settings.value(kTileWidth, 240).toInt(), kMaximumTileWidth);
   m_showGridFilenames = m_settings.value(kShowGridFilenames, false).toBool();
@@ -754,7 +765,7 @@ void AppSettings::setPreviewHeight(int height) {
 }
 
 void AppSettings::setThumbnailCacheMb(int megabytes) {
-  const int bounded = qBound(64, megabytes, 1024);
+  const int bounded = qBound(64, megabytes, kMaximumThumbnailCacheMb);
   if (m_thumbnailCacheMb == bounded) {
     return;
   }

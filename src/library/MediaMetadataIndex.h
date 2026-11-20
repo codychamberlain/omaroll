@@ -65,6 +65,10 @@ public:
   // The embedded cache's own cap. Descriptions go first, then the entries
   // seen longest ago.
   static constexpr qint64 kMaximumEmbeddedCacheBytes = 64LL * 1024 * 1024;
+  // Both caps as this index uses them: the defaults, or the settings
+  // file's cache/metadataMaximumMb and cache/embeddedMaximumMb.
+  [[nodiscard]] qint64 maximumCacheBytes() const { return m_maximumCacheBytes; }
+  [[nodiscard]] qint64 maximumEmbeddedCacheBytes() const { return m_maximumEmbeddedCacheBytes; }
   // Results reach AppSettings at most this often while indexing.
   static constexpr int kEmbeddedIntervalMs = 1000;
   // In-process reads run in batches this size.
@@ -206,6 +210,10 @@ private:
   void saveEmbeddedCache();
 
   CaptureModel* m_model = nullptr;
+  qint64 m_maximumCacheBytes = 0;
+  quint32 m_maximumCacheEntries = 0;
+  qint64 m_maximumEmbeddedCacheBytes = 0;
+  quint32 m_maximumEmbeddedEntries = 0;
   QString m_imageProgram;
   QString m_videoProgram;
   QHash<QString, Entry> m_entries;

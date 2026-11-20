@@ -30,8 +30,9 @@ namespace {
 
 constexpr quint32 kCacheMagic = 0x4f4d4431; // OMD1
 constexpr quint16 kCacheVersion = 3;
-constexpr qint64 kMaximumCacheBytes = 16LL * 1024 * 1024;
-constexpr quint32 kMaximumCacheEntries = 100'000;
+// Entries either cache may hold for each MiB it is allowed: 100,000 dates in
+// the default 16 MiB, 400,000 keyword entries in the default 64 MiB.
+constexpr quint32 kCacheEntriesPerMb = 6250;
 constexpr int kImageBatchSize = 32;
 constexpr int kImageBatchTimeoutMs = 30'000;
 constexpr int kVideoProbeTimeoutMs = 5000;
@@ -40,7 +41,6 @@ constexpr auto kImageRecordPrefix = "\x1e"
 // The embedded cache: keywords, rating and description per file.
 constexpr quint32 kEmbeddedMagic = 0x4f4d4531; // OME1
 constexpr quint16 kEmbeddedVersion = 2;
-constexpr quint32 kMaximumEmbeddedEntries = 400'000;
 
 QString cacheHome() {
   const QString configured = qEnvironmentVariable("XDG_CACHE_HOME");
@@ -240,6 +240,13 @@ MediaMetadataIndex::MediaMetadataIndex(CaptureModel* model, QObject* parent)
     : QObject(parent), m_model(model),
       m_imageProgram(QStandardPaths::findExecutable(QStringLiteral("magick"))),
       m_videoProgram(QStandardPaths::findExecutable(QStringLiteral("ffprobe"))) {
+  const AppSettings* limits = m_model ? m_model->settings() : nullptr;
+  const int dateMb = limits ? limits->metadataCacheMb() : AppSettings::kDefaultMetadataCacheMb;
+  const int embeddedMb = limits ? limits->embeddedCacheMb() : AppSettings::kDefaultEmbeddedCacheMb;
+  m_maximumCacheBytes = qint64(dateMb) * 1024 * 1024;
+  m_maximumCacheEntries = kCacheEntriesPerMb * quint32(dateMb);
+  m_maximumEmbeddedCacheBytes = qint64(embeddedMb) * 1024 * 1024;
+  m_maximumEmbeddedEntries = kCacheEntriesPerMb * quint32(embeddedMb);
   loadCache();
   loadEmbeddedCache();
 
@@ -948,7 +955,7 @@ void MediaMetadataIndex::publishProgress() {
 
 void MediaMetadataIndex::loadCache() {
   QFile file(cachePath());
-  if (!file.open(QIODevice::ReadOnly) || file.size() > kMaximumCacheBytes) {
+  if (!file.open(QIODevice::ReadOnly) || file.size() > m_maximumCacheBytes) {
     return;
   }
 
@@ -958,7 +965,7 @@ void MediaMetadataIndex::loadCache() {
   quint16 version = 0;
   quint32 count = 0;
   stream >> magic >> version >> count;
-  if (magic != kCacheMagic || version != kCacheVersion || count > kMaximumCacheEntries) {
+  if (magic != kCacheMagic || version != kCacheVersion || count > m_maximumCacheEntries) {
     return;
   }
 
@@ -981,7 +988,7 @@ void MediaMetadataIndex::loadCache() {
 
 void MediaMetadataIndex::loadEmbeddedCache() {
   QFile file(embeddedCachePath());
-  if (!file.open(QIODevice::ReadOnly) || file.size() > kMaximumEmbeddedCacheBytes) {
+  if (!file.open(QIODevice::ReadOnly) || file.size() > m_maximumEmbeddedCacheBytes) {
     return;
   }
   QDataStream stream(&file);
@@ -990,7 +997,7 @@ void MediaMetadataIndex::loadEmbeddedCache() {
   quint16 version = 0;
   quint32 count = 0;
   stream >> magic >> version >> count;
-  if (magic != kEmbeddedMagic || version != kEmbeddedVersion || count > kMaximumEmbeddedEntries) {
+  if (magic != kEmbeddedMagic || version != kEmbeddedVersion || count > m_maximumEmbeddedEntries) {
     return;
   }
   QHash<QString, EmbeddedEntry> loaded;
@@ -1041,7 +1048,7 @@ void MediaMetadataIndex::saveEmbeddedCache() {
   QHash<QString, EmbeddedEntry> kept = m_embedded;
   // Over the cap: descriptions go first, then whole entries, oldest seen
   // first each time. The date cache is a separate file and never waits on this.
-  for (qsizetype at = 0; total > kMaximumEmbeddedCacheBytes && at < bySeen.size(); ++at) {
+  for (qsizetype at = 0; total > m_maximumEmbeddedCacheBytes && at < bySeen.size(); ++at) {
     EmbeddedEntry& entry = kept[bySeen.at(at)];
     if (entry.fields.description.isEmpty()) continue;
     total -= qint64(entry.fields.description.size()) * 2;
@@ -1049,7 +1056,7 @@ void MediaMetadataIndex::saveEmbeddedCache() {
     entry.partial = true;
     ++droppedDescriptions;
   }
-  for (qsizetype at = 0; (total > kMaximumEmbeddedCacheBytes || kept.size() > qsizetype(kMaximumEmbeddedEntries)) &&
+  for (qsizetype at = 0; (total > m_maximumEmbeddedCacheBytes || kept.size() > qsizetype(m_maximumEmbeddedEntries)) &&
                          at < bySeen.size();
        ++at) {
     const auto found = kept.constFind(bySeen.at(at));
@@ -1059,7 +1066,7 @@ void MediaMetadataIndex::saveEmbeddedCache() {
   }
   if (droppedDescriptions > 0 || droppedEntries > 0) {
     qDebug().noquote() << QStringLiteral("Embedded metadata cache over %1 MiB: left out %2 descriptions and %3 files")
-                              .arg(kMaximumEmbeddedCacheBytes / (1024 * 1024))
+                              .arg(m_maximumEmbeddedCacheBytes / (1024 * 1024))
                               .arg(droppedDescriptions)
                               .arg(droppedEntries);
   }
@@ -1084,7 +1091,7 @@ void MediaMetadataIndex::saveEmbeddedCache() {
            << static_cast<qint8>(entry.fields.rating) << entry.fields.description << entry.fields.hasXmp
            << entry.seen << entry.partial;
   }
-  if (stream.status() == QDataStream::Ok && file.size() <= kMaximumEmbeddedCacheBytes && file.commit()) {
+  if (stream.status() == QDataStream::Ok && file.size() <= m_maximumEmbeddedCacheBytes && file.commit()) {
     QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     m_embeddedDirty = false;
   } else {
@@ -1122,7 +1129,7 @@ void MediaMetadataIndex::saveCache() {
   QStringList ordered;
   QSet<QString> seen;
   if (m_model) {
-    ordered.reserve(qMin(m_model->rowCount(), static_cast<int>(kMaximumCacheEntries)));
+    ordered.reserve(qMin(m_model->rowCount(), static_cast<int>(m_maximumCacheEntries)));
     for (int row = 0; row < m_model->rowCount(); ++row) {
       const QString& path = m_model->recordAt(row).path;
       if (m_entries.contains(path) && !seen.contains(path)) {
@@ -1146,8 +1153,8 @@ void MediaMetadataIndex::saveCache() {
     const Entry& sized = m_entries[key];
     const qint64 entryBytes =
         320 + qint64(key.size() + sized.details.camera.size() + sized.details.lens.size()) * 2;
-    if (retained.size() >= static_cast<int>(kMaximumCacheEntries) ||
-        estimatedBytes + entryBytes > kMaximumCacheBytes) {
+    if (retained.size() >= static_cast<int>(m_maximumCacheEntries) ||
+        estimatedBytes + entryBytes > m_maximumCacheBytes) {
       continue;
     }
     retained.append(key);
@@ -1173,7 +1180,7 @@ void MediaMetadataIndex::saveCache() {
     stream << key << entry.modified << entry.bytes << entry.details.captured
            << entry.details.camera << entry.details.lens << entry.device << entry.inode;
   }
-  if (stream.status() == QDataStream::Ok && file.size() <= kMaximumCacheBytes && file.commit()) {
+  if (stream.status() == QDataStream::Ok && file.size() <= m_maximumCacheBytes && file.commit()) {
     QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     QHash<QString, Entry> kept;
     kept.reserve(retained.size());
